@@ -5,209 +5,87 @@
 #include <iostream>
 #include <Setupapi.h>
 #include <Ntddstor.h>
+#include <iostream>
 #include <string>
-#include <stdlib.h>
 #include "../sqlite/Debug/sqlite3.h"
 #include "define.h"
+//#include <string.h>
 
 
 #pragma comment( lib, "setupapi.lib" )
-int MFTtest(struct mftstruct *u3);
+
 using namespace std;
 
-// ÀÌºÎºĞÀº MFTºÎºĞ¿¡¼­ ½Ã°£ 8°³ÀÇ °ªÀ» ÀÌ»Ú°Ô ¿ì¸®°¡ º¸±â ÁÁ°Ô Ç¥ÇöÇÒ ¼ö ÀÖ°Ô ÇÏ´Â ÇÔ¼ö·Î ¸¸µé¾î ÁÖ¼ÌÀ½.
-// ÇöÀç 8°³ÀÇ ½Ã°£ Áß 6°³´Â 10±ÛÀÚÀÇ ¼ıÀÚ·Î ³ª¿È. 2°³´Â -1·Î ³ª¿À°í. ÀÌ ºÎºĞÀº Àç¿µÀÌ°¡ ¼öÁ¤ÇØ¼­ ´Ù½Ã ÇÕÄ¡±â·Î Çß¾û
-// ÀÌ·Ğ»ó Á¤»óÃâ·Â µÇ¸é ½Ã°£ÀÌ ÀÌ ÇÔ¼ö¸¦ ÅëÇØ ÀÌ»Ú°Ô ³ª¿Ã °Í °°À½. ¹Ø¿¡ ¶È°°Àº ÇÔ¼ö ÁÖ¼® µÇÀÖ´Â °ÍÀº ¸àÅä´ÔÀÌ Â¥ÁÖ½Å ¿øº» ¾Æ·¡°ÍÀº ³»°¡ ¾î¶»°Ô ÇØº¸·Á°í ¼öÁ¤ÇÏ´ø°Í.
-time_t TimeFromSystemTime(const SYSTEMTIME pTime)
+unsigned __int64 filetime_to_microseconds(const FILETIME& ft)
 {
-    struct tm tm;
-	time_t t;
-	
-    memset(&tm, 0, sizeof(tm));
-
-	 tm.tm_hour = pTime.wHour;
-    tm.tm_min = pTime.wMinute;
-    tm.tm_sec = pTime.wSecond;
-
-	tm.tm_mon = pTime.wMonth - 1;
-    tm.tm_mday = pTime.wDay;
-    tm.tm_year = pTime.wYear-1900;
-    
-
-    return mktime(&tm);
+    // FILETIME ì€ 1601-Jan-01 ê¸°ì¤€ìœ¼ë¡œ 10,000,000 ë¶„ì˜ 1ì´ˆ(100 ë‚˜ë…¸ì´ˆ) ë¡œ ê¸°ë¡ë¨
+    union
+    {
+        FILETIME asFileTime ;
+        unsigned __int64 asInt64 ;
+    } myFileTime;
+ 
+    myFileTime.asFileTime = ft;
+    myFileTime.asInt64 -= 116444736000000000ULL; // 1970-Jan-01 ê¸°ì¤€ ìœ¼ë¡œ ë³€í™˜
+    return (myFileTime.asInt64 / 10); // microseconds ë¡œ ë³€í™˜
 }
-/*
-time_t TimeFromSystemTime(const SYSTEMTIME pTime)
-{
-    struct tm tm;
-	time_t t;
 
-    memset(&tm, 0, sizeof(tm));
-
-    tm.tm_year = pTime.wYear-1900;
-    tm.tm_mon = pTime.wMonth - 1;
-    tm.tm_mday = pTime.wDay;
-
-    tm.tm_hour = pTime.wHour;
-    tm.tm_min = pTime.wMinute;
-    tm.tm_sec = pTime.wSecond;
-	
-	t = mktime(&tm);
-
-    return t;
-}*/
-
-//MFT Struct ±¸Á¶Ã¼
 struct mftstruct{
 	ULONGLONG entry;
 	ULONGLONG ParentRef;
-	char FILENAME[100]; 
-	SYSTEMTIME SI_writeTm, SI_createTm, SI_accessTm, SI_mftTm;
-	SYSTEMTIME FN_writeTm, FN_createTm, FN_accessTm, FN_mftTm;
+	char FILENAME[MAX_PATH]; 
+	char FULLPATH[MAX_PATH];
+	unsigned __int64 SI_writeTm, SI_createTm, SI_accessTm, SI_mftTm;
+	unsigned __int64 FN_writeTm, FN_createTm, FN_accessTm, FN_mftTm;
 };
 typedef struct mftstruct MFTSTRUCT;
 
-unsigned int entry_count; //for¹® µ¹·ÈÀ»¶§ Çà¼ö Ã¼Å©ÇÏ´Â º¯¼ö¼±¾ğ
+ULONGLONG entry_count;
 
-//¿©±â¼­ºÎÅÍ MFTÇÔ¼ö±îÁö´Â MFT ÄÚµå ºÎºĞ
 int totalfiles = 0;
 int totaldirs = 0;
 
-#define START_ERROR_CHK()           \
-    DWORD error = ERROR_SUCCESS;    \
-    DWORD failedLine;               \
-    string failedApi;
+char fullPath_[MAX_PATH];
+char root[10] = "$ROOT";
+char BackSlash[MAX_PATH] = "\\";
 
-#define CHK( expr, api )            \
-    if ( !( expr ) ) {              \
-        error = GetLastError( );    \
-        failedLine = __LINE__;      \
-        failedApi = ( api );        \
-        goto Error_Exit;            \
-    }
 
-#define END_ERROR_CHK()             \
-    error = ERROR_SUCCESS;          \
-    Error_Exit:                     \
-    if ( ERROR_SUCCESS != error ) { \
-        cout << failedApi << " failed at " << failedLine << " : Error Code - " << error << endl;    \
-    }
+char *getFullPath(int entry, MFTSTRUCT *mftStruct, int saved_entry)
+{
+	//static char buff[MAX_PATH] = "";
 
-int getPhysicalDrive() {
+	if ( entry == 5 )
+	{	
+		return root;
+	}
 
-    HDEVINFO diskClassDevices;
-    GUID diskClassDeviceInterfaceGuid = GUID_DEVINTERFACE_DISK;
-    SP_DEVICE_INTERFACE_DATA deviceInterfaceData;
-    PSP_DEVICE_INTERFACE_DETAIL_DATA deviceInterfaceDetailData;
-    DWORD requiredSize;
-    DWORD deviceIndex;
+	if ( entry != 5 )
+	{
+		//sprintf(mftStruct[saved_entry].FULLPATH, "\\%s", getFullPath(mftStruct[entry].ParentRef, mftStruct, saved_entry));
 
-    HANDLE disk = INVALID_HANDLE_VALUE;
-    STORAGE_DEVICE_NUMBER diskNumber;
-    DWORD bytesReturned;
-
-    START_ERROR_CHK();
-
-    //
-    // Get the handle to the device information set for installed
-    // disk class devices. Returns only devices that are currently
-    // present in the system and have an enabled disk device
-    // interface.
-    //
-    diskClassDevices = SetupDiGetClassDevs( &diskClassDeviceInterfaceGuid,
-                                            NULL,
-                                            NULL,
-                                            DIGCF_PRESENT |
-                                            DIGCF_DEVICEINTERFACE );
-    CHK( INVALID_HANDLE_VALUE != diskClassDevices,
-         "SetupDiGetClassDevs" );
-
-    ZeroMemory( &deviceInterfaceData, sizeof( SP_DEVICE_INTERFACE_DATA ) );
-    deviceInterfaceData.cbSize = sizeof( SP_DEVICE_INTERFACE_DATA );
-    deviceIndex = 0;
-
-    while ( SetupDiEnumDeviceInterfaces( diskClassDevices,
-                                         NULL,
-                                         &diskClassDeviceInterfaceGuid,
-                                         deviceIndex,
-                                         &deviceInterfaceData ) ) {
-
-        ++deviceIndex;
-
-        SetupDiGetDeviceInterfaceDetail( diskClassDevices,
-                                         &deviceInterfaceData,
-                                         NULL,
-                                         0,
-                                         &requiredSize,
-                                         NULL );
-        CHK( ERROR_INSUFFICIENT_BUFFER == GetLastError( ),
-             "SetupDiGetDeviceInterfaceDetail - 1" );
-
-        deviceInterfaceDetailData = ( PSP_DEVICE_INTERFACE_DETAIL_DATA ) malloc( requiredSize );
-        CHK( NULL != deviceInterfaceDetailData,
-             "malloc" );
-
-        ZeroMemory( deviceInterfaceDetailData, requiredSize );
-        deviceInterfaceDetailData->cbSize = sizeof( SP_DEVICE_INTERFACE_DETAIL_DATA );
-
-        CHK( SetupDiGetDeviceInterfaceDetail( diskClassDevices,
-                                              &deviceInterfaceData,
-                                              deviceInterfaceDetailData,
-                                              requiredSize,
-                                              NULL,
-                                              NULL ),
-             "SetupDiGetDeviceInterfaceDetail - 2" );
-
-        disk = CreateFile( deviceInterfaceDetailData->DevicePath,
-                           GENERIC_READ,
-                           FILE_SHARE_READ | FILE_SHARE_WRITE,
-                           NULL,
-                           OPEN_EXISTING,
-                           FILE_ATTRIBUTE_NORMAL,
-                           NULL );
-        CHK( INVALID_HANDLE_VALUE != disk,
-             "CreateFile" );
-
-        CHK( DeviceIoControl( disk,
-                              IOCTL_STORAGE_GET_DEVICE_NUMBER,
-                              NULL,
-                              0,
-                              &diskNumber,
-                              sizeof( STORAGE_DEVICE_NUMBER ),
-                              &bytesReturned,
-                              NULL ),
-             "IOCTL_STORAGE_GET_DEVICE_NUMBER" );
-
-        CloseHandle( disk );
-        disk = INVALID_HANDLE_VALUE;
-
-        cout << deviceInterfaceDetailData->DevicePath << endl;
-        cout << "\\\\?\\PhysicalDrive" << diskNumber.DeviceNumber << endl;
-        cout << endl;
-    }
-    CHK( ERROR_NO_MORE_ITEMS == GetLastError( ),
-         "SetupDiEnumDeviceInterfaces" );
-
-    END_ERROR_CHK();
-
-Exit:
-
-    if ( INVALID_HANDLE_VALUE != diskClassDevices ) {
-        SetupDiDestroyDeviceInfoList( diskClassDevices );
-    }
-
-    if ( INVALID_HANDLE_VALUE != disk ) {
-        CloseHandle( disk );
-    }
-
-    return error;
+		strcat(mftStruct[saved_entry].FULLPATH,  getFullPath(mftStruct[entry].ParentRef, mftStruct, saved_entry));
+		char BackSlash[MAX_PATH] = "\\";
+		strcat(BackSlash, mftStruct[entry].FILENAME);
+		//return mftStruct[entry].FILENAME;
+		return BackSlash;
+	}
 }
 
-void pause(void) {
-  printf("Press any key to continue . . .");
-  getchar();  // ¾Æ¹« Å°³ª 1°³ ÀÔ·Â ¹Ş±â
-  puts(""); // ÁÙ¹Ù²Ş
+void printStruct(MFTSTRUCT *mftStruct)
+{
+	for(int i=303 ;i<404 ; i++)
+	//for(int i=0 ;i<entry_count ; i++)
+	{
+		//printf(" [i] entry values\n ");
+		printf(" FILENAME = %s\n", mftStruct[i].FILENAME);
+		//printf(" W_TIME = %u\n", mftStruct[i].FN_accessTm);
+		//printf(" A_TIME = %u\n", mftStruct[i].FN_createTm);
+		//printf(" C_TIME = %u\n", mftStruct[i].FN_mftTm);
+		//printf(" Entry Num = %u\n", mftStruct[i].entry);
+		//printf(" ParentReg Num = %u\n\n", mftStruct[i].ParentRef);
+	}
 }
+
 
 void usage()
 {
@@ -273,131 +151,112 @@ char getvolume(char **ppath)
 	return volname;
 }
 
-void printfile(const CIndexEntry *ie) // È£Ãâ X
-{
-	// Hide system metafiles
-	if (ie->GetFileReference() < MFT_IDX_USER)
-	{
-		printf("MFT Metadata : Entry < 15\n");
-		return;
-	}
-
-	// Ignore DOS alias file names
-	if (!ie->IsWin32Name())
-		return;
-
-	FILETIME ft;
-	char fn[MAX_PATH];
-	int fnlen = ie->GetFileName(fn, MAX_PATH);
-	if (fnlen > 0)
-	{
-		ie->GetFileTime(&ft);
-		SYSTEMTIME st;
-		if (FileTimeToSystemTime(&ft, &st))
-		{
-			printf("%d-%02d-%02d  %02d:%02d\t%s    ", st.wYear, st.wMonth, st.wDay,
-				st.wHour, st.wMinute, ie->IsDirectory()?"<DIR>":"     ");
-
-			if (!ie->IsDirectory())
-				printf("%I64u\t", ie->GetFileSize());
-			else
-				printf("\t");
-
-			printf("<%c%c%c>\t%s\n", ie->IsReadOnly()?'R':' ',
-				ie->IsHidden()?'H':' ', ie->IsSystem()?'S':' ', fn);
-		}
-
-		if (ie->IsDirectory())
-			totaldirs ++;
-		else
-			totalfiles ++;
-	}
-}
-
 int MFTtest(struct mftstruct  *u3)
 {
-    //database ÆÄÀÏ »ı¼ºÄÚµå
+    //database íŒŒì¼ ìƒì„±ì½”ë“œ
 
     sqlite3 *db = NULL; 
     sqlite3_stmt *stmt = NULL; //sqlite3 statement 
-    char *sql; //Äõ¸®¹® µé¾î°¡´Â °Í
-    int rc; //sqlite3 ÇÔ¼ö¸¦ »ç¿ëÇØ¼­ ³ª¿Â °ªÀ» ÀúÀåÇÏ´Â ºÎºĞÀÎµ¥. ±×³É ½ÇÇà½ÃÅ³¶§ ¹Ş´Â º¯¼ö¶ó »ı°¢ÇÏ¸é µÉµí.
-    unsigned int i; //for ¹® µ¹¸± ¶§ º¯¼ö
-    char *buffer = (char *)malloc(500);  //sql·Î ÇØµµ µÇÁö¸¸ insertºÎºĞÀÇ Äõ¸®¸¦ ³Ö±â À§ÇÑ º¯¼ö·Î »õ·Î ¸¸µé¾úÀ½
+    char *sql; //ì¿¼ë¦¬ë¬¸ ë“¤ì–´ê°€ëŠ” ê²ƒ
+    int rc; //sqlite3 í•¨ìˆ˜ë¥¼ ì‚¬ìš©í•´ì„œ ë‚˜ì˜¨ ê°’ì„ ì €ì¥í•˜ëŠ” ë¶€ë¶„ì¸ë°. ê·¸ëƒ¥ ì‹¤í–‰ì‹œí‚¬ë•Œ ë°›ëŠ” ë³€ìˆ˜ë¼ ìƒê°í•˜ë©´ ë ë“¯.
+    unsigned int i; //for ë¬¸ ëŒë¦´ ë•Œ ë³€ìˆ˜
+    char *buffer = (char *)malloc(500);  //sqlë¡œ í•´ë„ ë˜ì§€ë§Œ insertë¶€ë¶„ì˜ ì¿¼ë¦¬ë¥¼ ë„£ê¸° ìœ„í•œ ë³€ìˆ˜ë¡œ ìƒˆë¡œ ë§Œë“¤ì—ˆìŒ
  
-    memset(buffer, 0x00, sizeof(char)*500); //bufferºÎºĞÀÇ ¸Ş¸ğ¸® ÃÊ±âÈ­
+    memset(buffer, 0x00, sizeof(char)*500); //bufferë¶€ë¶„ì˜ ë©”ëª¨ë¦¬ ì´ˆê¸°í™”
 
-	//¿©±â¼­ºÎÅÍ Å×ÀÌºí »ı¼º Àü±îÁö´Â dbÆÄÀÏ »ı¼ººÎºĞ
-    int error = sqlite3_open("test444.db", &db);
+	//ì—¬ê¸°ì„œë¶€í„° í…Œì´ë¸” ìƒì„± ì „ê¹Œì§€ëŠ” dbíŒŒì¼ ìƒì„±ë¶€ë¶„
+    int error = sqlite3_open("test1.db", &db);
     if(error)
     {
-        fprintf(stderr, "DBÁ¢±ÙÀÌ ¾î·Æ½À´Ï´Ù. (¿À·ù %s)\n", sqlite3_errmsg(db));
+        fprintf(stderr, "DBì ‘ê·¼ì´ ì–´ë µìŠµë‹ˆë‹¤. (ì˜¤ë¥˜ %s)\n", sqlite3_errmsg(db));
     }
-    fprintf(stdout, "DB¿¬°á ¿Ï·á.\n");
-    if(sqlite3_open("test444.db", &db) != SQLITE_OK)
+    fprintf(stdout, "DBì—°ê²° ì™„ë£Œ.\n");
+    if(sqlite3_open("test1.db", &db) != SQLITE_OK)
     {
-        fprintf(stderr, "DBÁ¢±ÙÀÌ ¾î·Æ½À´Ï´Ù. (¿À·ù %s)\n", sqlite3_errmsg(db));
+        fprintf(stderr, "DBì ‘ê·¼ì´ ì–´ë µìŠµë‹ˆë‹¤. (ì˜¤ë¥˜ %s)\n", sqlite3_errmsg(db));
     }
 
-    //MFT Å×ÀÌºí »ı¼º
-    sql = "CREATE TABLE IF NOT EXISTS MFT (FILENAME TEXT ,entry INT, ParentRef INT, Sl_writeTm INT, SI_createTm INT, SI_accessTm INT, SI_mftTm INT, FN_writeTm INT, FN_createTm INT, FN_accessTm INT, FN_mftTm INT);";
-    if( sqlite3_exec(db, sql, NULL, NULL, NULL) == SQLITE_OK) { //¸àÅä´Ô²²¼­ µğ¹ö±ë ÆíÇÏ½Ã·Á°í ¼öÁ¤ÇØÁÖ½Å ºÎºĞ. ¿¬°áµÇ¸é ÄÜ¼Ö¿¡ succeeded Ãâ·ÂµÊ.
+    //MFT í…Œì´ë¸” ìƒì„±
+    sql = "CREATE TABLE IF NOT EXISTS MFT (FILENAME TEXT, FULLPATH TEXT, entry INT, ParentRef INT, Sl_writeTm INT, SI_createTm INT, SI_accessTm INT, SI_mftTm INT, FN_writeTm INT, FN_createTm INT, FN_accessTm INT, FN_mftTm INT);";
+    if( sqlite3_exec(db, sql, NULL, NULL, NULL) == SQLITE_OK) { //ë©˜í† ë‹˜ê»˜ì„œ ë””ë²„ê¹… í¸í•˜ì‹œë ¤ê³  ìˆ˜ì •í•´ì£¼ì‹  ë¶€ë¶„. ì—°ê²°ë˜ë©´ ì½˜ì†”ì— succeeded ì¶œë ¥ë¨.
         fprintf(stderr, ">> SQLite Table creation Succeeded!\n");
     } else {
-        puts("Å×ÀÌºí »ı¼º¿¡ ½ÇÆĞÇß½À´Ï´Ù.");
+        puts("í…Œì´ë¸” ìƒì„±ì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤.");
         exit(1);
     }
+    //if(sqlite3_prepare_v2(db, sql, -1, &stmt, 0) == SQLITE_OK) //SQL ì¿¼ë¦¬ë¬¸ì„ ë„£ëŠ” ì½”ë“œ. ê·¸ë˜ì„œ í…Œì´ë¸”ì´ ìƒì„±ë¨. ì¿¼ë¦¬ë¬¸ì€ sql ë³€ìˆ˜ì— ì €ì¥
+    //{
+    //    if ( sqlite3_step(stmt) != SQLITE_DONE )  {
+    //        fprintf(stderr, ">> SQLite Table creation failed!\n");
+    //        exit(1);
+    //    }
+    //}
+    //else
+    //{
+    //    puts("í…Œì´ë¸” ìƒì„±ì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤.");
+    //}
+    //sqlite3_finalize(stmt);
 
-    //µ¥ÀÌÅÍ Ãß°¡ ÄÚµå.
-    char* errorMsg = NULL; //error »ı°åÀ» ¶§ Ãâ·Â À§ÇÑ º¯¼ö
-    rc = sqlite3_exec(db, "BEGIN TRANSACTION;", NULL, NULL, &errorMsg); //insert ¼Óµµ °³¼± À§ÇØ »ç¿ëÇÑ ÄÚµå. insert¹® ³¡³¯ ¶§ ³¡³»´Â ¹®Àåµµ ÀÖÀ½.
-    fprintf(stderr, " Commit begin result : %s\n", errorMsg); //µğ¹ö±ë ÆíÇÏ°Ô ÇÏ±â À§ÇØ ÄÜ¼Ö¿¡ Ãâ·ÂÇØÁÖ´Â ºÎºĞ. ³ªÁß¿¡´Â Áö¿öµµ µÉµí
-	sprintf (buffer,"INSERT INTO MFT(FILENAME, entry, ParentRef, Sl_writeTm, SI_createTm, SI_accessTm, SI_mftTm, FN_writeTm, FN_createTm, FN_accessTm, FN_mftTm) VALUES ( ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)");
-  //buffer¶ó´Â º¯¼ö¿¡ insert Äõ¸®¹®À» ³Ö´Â °Í. Äõ¸®¹®¿¡ º¯¼ö¿¡ ¸Â°Ô ³Ö°í. values¿¡ ³ÖÀ¸¸éµÊ. 1,2,3,4,5,6~~ ¼ıÀÚ´Â ¾Æ·¡ sqlite3_bind_text stmt, ¼ıÀÚºÎºĞÀ» ¹Ù²ãÁÖ¸é µÊ. ¼ıÀÚ´ÙÀ½Àº ÀúÀåµÇÀÖ´Â º¯¼ö°ªµé)
-    if(sqlite3_prepare_v2(db, buffer, strlen(buffer), &stmt, NULL) == SQLITE_OK) //µğ¹ö±ë È®ÀÎ À§ÇÑ if¹®
+    //ë°ì´í„° ì¶”ê°€ ì½”ë“œ.
+    char* errorMsg = NULL;
+    rc = sqlite3_exec(db, "BEGIN TRANSACTION;", NULL, NULL, &errorMsg);
+    fprintf(stderr, " Commit begin result : %s\n", errorMsg);
+	sprintf (buffer,"INSERT INTO MFT(FILENAME, FULLPATH, entry, ParentRef, Sl_writeTm, SI_createTm, SI_accessTm, SI_mftTm, FN_writeTm, FN_createTm, FN_accessTm, FN_mftTm) VALUES ( ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)");
+    //sprintf (buffer,"INSERT INTO MFT(FILENAME, entry, ParentRef, Sl_writeTm, SI_createTm, SI_accessTm, SI_mftTm, FN_writeTm, FN_createTm, FN_accessTm, FN_mftTm) VALUES ( ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)", , , , u3[i]., u3[i]., u3[i]., u3[i]., u3[i]., u3[i]., u3[i]., u3[i].);
+
+    if(sqlite3_prepare_v2(db, buffer, strlen(buffer), &stmt, NULL) == SQLITE_OK)
     {
         puts(">> Prepared Statement is ready : Succeeded!\n");
     }
     else
     {
-        puts("Å×ÀÌºí °ª ÀÔ·Â¿¡ ½ÇÆĞÇÏ¿´½À´Ï´Ù.");
+        puts("í…Œì´ë¸” ê°’ ì…ë ¥ì— ì‹¤íŒ¨í•˜ì˜€ìŠµë‹ˆë‹¤.");
     }
 
-    for( i=0; i<entry_count; i++){	//sqlite3¿¡ ¸Â´Â µ¥ÀÌÅÍ Çü½ÄÀ¸·Î ¸ÂÃçÁÖ´Â ÇÔ¼ö. int´Â ÀÎÀÚ 3°³ text´Â ÀÎÀÚ 4°³. SQLITE_STATIC (TEXT´Â ÀÌ°Å »ç¿ëÇÏ¸é µÉµí) ÀÚ¼¼ÇÑ ³»¿ëÀº ÇÑ±ÛÆÄÀÏ Ã·ºÎ.
-		sqlite3_bind_text(stmt, 1, u3[i].FILENAME, strlen(u3[i].FILENAME), SQLITE_STATIC);
-		sqlite3_bind_int(stmt, 2, (int)(u3[i].entry));
-        sqlite3_bind_int(stmt, 3, (int)(u3[i].ParentRef));
-        sqlite3_bind_int(stmt, 4, TimeFromSystemTime(u3[i].SI_writeTm));
-        sqlite3_bind_int(stmt, 5, (int)TimeFromSystemTime(u3[i].SI_createTm));
-        sqlite3_bind_int(stmt, 6, (int)TimeFromSystemTime(u3[i].SI_accessTm));
-        sqlite3_bind_int(stmt, 7, (int)TimeFromSystemTime(u3[i].SI_mftTm));
-        sqlite3_bind_int(stmt, 8, (int)TimeFromSystemTime(u3[i].FN_writeTm));
-        sqlite3_bind_int(stmt, 9, (int)TimeFromSystemTime(u3[i].FN_createTm));
-        sqlite3_bind_int(stmt, 10, (int)TimeFromSystemTime(u3[i].FN_accessTm));
-        sqlite3_bind_int(stmt, 11, (int)TimeFromSystemTime(u3[i].FN_mftTm)); // entry¿Í ParentRef´Â ±×³É int ¼ıÀÚÀÌ±â¿¡ Àú·¸°Ô Ç¥½ÃÇß°í ³ª¸ÓÁö SYSTEMTIME µéÀº ÀÌ»Ú°Ô Ç¥ÇöÇÏ±âÀ§ÇØ ÇÔ¼ö¸¦ »ç¿ëÇß´Âµ¥ ÀÏ´Ü ¾È³ª¿À´Â »óÈ²
+    for( i=0; i<entry_count; i++){
 
-		// ÀÌ if¹®Àº ¾ø¾îµµµÊ. ¸àÅä´Ô²²¼­ Á÷Á¢ µğ¹ö±ë ÆíÈ÷ º¸½Ã·Á°í ÇØ³õÀ¸¼Ì´Ù°í ÇÔ. ÀÌ°ÅÁú¹®Çß¾úÀ½.¤»¤»
-        if ( sqlite3_step(stmt) != SQLITE_DONE )  { 
+        //sprintf (buffer,"INSERT INTO MFT(FILENAME, entry, ParentRef, Sl_writeTm, SI_createTm, SI_accessTm, SI_mftTm, FN_writeTm, FN_createTm, FN_accessTm, FN_mftTm) VALUES ( \"%s\", \"%d\", \"%d\", \"%d\", \"%d\", \"%d\", \"%d\", \"%d\", \"%d\", \"%d\", \"%d\")", u3[i].FILENAME, (int)u3[i].entry, (int)u3[i].ParentRef, u3[i].SI_writeTm, u3[i].SI_createTm, u3[i].SI_accessTm, u3[i].SI_mftTm, u3[i].FN_writeTm, u3[i].FN_createTm, u3[i].FN_accessTm, u3[i].FN_mftTm);
+
+		
+		sqlite3_bind_text(stmt, 1, u3[i].FILENAME, strlen(u3[i].FILENAME), SQLITE_STATIC);
+		sqlite3_bind_text(stmt, 2, u3[i].FULLPATH, strlen(u3[i].FULLPATH), SQLITE_STATIC);
+		sqlite3_bind_int(stmt, 3, (int)(u3[i].entry));
+        sqlite3_bind_int(stmt, 4, (int)(u3[i].ParentRef));
+        sqlite3_bind_int(stmt, 5, (int)(u3[i].SI_writeTm));
+        sqlite3_bind_int(stmt, 6, (int)(u3[i].SI_createTm));
+        sqlite3_bind_int(stmt, 7, (int)(u3[i].SI_accessTm));
+        sqlite3_bind_int(stmt, 8, (int)(u3[i].SI_mftTm));
+        sqlite3_bind_int(stmt, 9, (int)(u3[i].FN_writeTm));
+        sqlite3_bind_int(stmt, 10, (int)(u3[i].FN_createTm));
+        sqlite3_bind_int(stmt, 11, (int)(u3[i].FN_accessTm));
+        sqlite3_bind_int(stmt, 12, (int)(u3[i].FN_mftTm));
+
+
+        if ( sqlite3_step(stmt) != SQLITE_DONE )  {
             fprintf(stderr, ">> SQLite Insert failed! \n");
             fprintf(stderr, ">> Values : %s, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u\n", u3[i].FILENAME, u3[i].entry, u3[i].ParentRef, u3[i].SI_writeTm, u3[i].SI_createTm, u3[i].SI_accessTm, u3[i].SI_mftTm, u3[i].FN_writeTm, u3[i].FN_createTm, u3[i].FN_accessTm, u3[i].FN_mftTm);
+            //exit(1);
         }
-        sqlite3_reset(stmt); 
-    }
-    rc = sqlite3_exec(db, "COMMIT TRANSACTION;", NULL, NULL, &errorMsg);//À§¿¡ insert¹® ¼Óµµºü¸£°Ô ÇÏ±âÀ§ÇÑ°Å ³¡¸¶Ä¡´Â°Í.
-    fprintf(stderr, " Commit result : %s\n", errorMsg);//µğ¹ö±ëÆíÇÏ±â À§ÇØ ÄÜ¼Ö¿¡ ³¡³µ´Ù°í Ç¥½Ã
-    sqlite3_finalize(stmt);//sqlite3ÀÛµ¿ ³¡³»´Â ÇÔ¼ö.
 
-    sqlite3_close(db);//db ´İÀ½.
+        //sqlite3_finalize(stmt);
+        sqlite3_reset(stmt);
+    }
+    rc = sqlite3_exec(db, "COMMIT TRANSACTION;", NULL, NULL, &errorMsg);
+    fprintf(stderr, " Commit result : %s\n", errorMsg);
+    sqlite3_finalize(stmt);
+
+    sqlite3_close(db);
+    for(i=0; i<165000;i++){
+        //printf("%s, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u\n", u3[i].FILENAME, u3[i].entry, u3[i].ParentRef, u3[i].SI_writeTm, u3[i].SI_createTm, u3[i].SI_accessTm, u3[i].SI_mftTm, u3[i].FN_writeTm, u3[i].FN_createTm, u3[i].FN_accessTm, u3[i].FN_mftTm);
+    }
     return 0;
  }
 
 int mft_live()
 {
-	clock_t start, end; // ÇÁ·Î±×·¥ ½ÇÇà ½Ã°£ ÃøÁ¤ ¿ë
+	clock_t start, end; // í”„ë¡œê·¸ë¨ ì‹¤í–‰ ì‹œê°„ ì¸¡ì • ìš©
 
-	DWORD mydrives = 100;// buffer length
-	char lpBuffer[100];// buffer for drive string storage
-	
+
 	printf("# The Physical Drives of this Machine : \n");
 	//getPhysicalDrive();
 	system("wmic diskdrive get Caption, Name");
@@ -407,7 +266,7 @@ int mft_live()
 	system("wmic logicaldisk get Description, Name, FileSystem, SystemName");
 
 
-		////////////////////////////////////// ºĞ¼®ÇÒ µå¶óÀÌºê ÀÔ·Â.
+		////////////////////////////////////// ë¶„ì„í•  ë“œë¼ì´ë¸Œ ì…ë ¥.
 
 	char Name[200];
 	printf("\n# Enter the drive Name : ");
@@ -429,18 +288,20 @@ int mft_live()
 		printf("Cannot get NTFS BPB from boot sector of volume %c\n", volname);
 		return -1;
 	}
-	
-	
+
+
 	entry_count = volume.GetRecordsCount();	// ULONGLONG GetRecordsCount() const
 	printf("MFT Records Count = %d\n\n", entry_count);
 
-	// MFT Á¤º¸°¡ ÀúÀåµÇ´Â ±¸Á¶Ã¼ ¹è¿­ µ¿ÀûÇÒ´ç.
+	// MFT ì •ë³´ê°€ ì €ì¥ë˜ëŠ” êµ¬ì¡°ì²´ ë°°ì—´ ë™ì í• ë‹¹.
 	MFTSTRUCT *u3; 
-	u3 = (MFTSTRUCT *)malloc(sizeof(MFTSTRUCT) * entry_count);
+	//u3 = (MFTSTRUCT *)malloc(sizeof(MFTSTRUCT) * entry_count);
+	u3 = (MFTSTRUCT *)calloc(entry_count, sizeof(MFTSTRUCT));
 	if(u3 ==NULL){
 		puts("Malloc Failed...");
 		exit(1);
 	}
+
 
 	ULONGLONG  mft_addr;
 	mft_addr = volume.GetMFTAddr();
@@ -448,12 +309,11 @@ int mft_live()
 	// Relative start address of the $MFT metafile. Get from BPB.
 	
 	//////////////////////////////////////////////////////////////////////////////
-	// ºĞ¼®ÇÒ µå¶óÀÌºê ¼±ÅÃ ÈÄ º¼·ı Á¤º¸±îÁö °¡Áö°í¿ÔÀ½.
-
+	// ë¶„ì„í•  ë“œë¼ì´ë¸Œ ì„ íƒ í›„ ë³¼ë¥¨ ì •ë³´ê¹Œì§€ ê°€ì§€ê³ ì™”ìŒ.
 
 	// get root directory info
-	//.(Root Directory)´Â º¼·ıÀÇ ·çÆ®µğ·ºÅÍ¸®¸¦ ÀÇ¹ÌÇÏ´Â °ÍÀ¸·Î 
-	// µğ·ºÅÍ¸® ±¸Á¶ÀÇ ÆÄÀÏÀ» ºü¸£°Ô Á¢±ÙÇÏ±â À§ÇØ INDEX ±¸Á¶·Î ÀúÀåµÈ´Ù.
+	//.(Root Directory)ëŠ” ë³¼ë¥¨ì˜ ë£¨íŠ¸ë””ë ‰í„°ë¦¬ë¥¼ ì˜ë¯¸í•˜ëŠ” ê²ƒìœ¼ë¡œ 
+	// ë””ë ‰í„°ë¦¬ êµ¬ì¡°ì˜ íŒŒì¼ì„ ë¹ ë¥´ê²Œ ì ‘ê·¼í•˜ê¸° ìœ„í•´ INDEX êµ¬ì¡°ë¡œ ì €ì¥ëœë‹¤.
 	
 	CFileRecord fr(&volume);
 
@@ -464,7 +324,7 @@ int mft_live()
 	fr.SetAttrMask(MASK_STANDARD_INFORMATION | MASK_FILE_NAME);
 
 	//------------------------------------------------------------------------
-	if (!fr.ParseFileRecord(MFT_IDX_ROOT))	// º¼·ıÀÇ ·çÆ® µğ·ºÅä¸® 
+	if (!fr.ParseFileRecord(MFT_IDX_ROOT))	// ë³¼ë¥¨ì˜ ë£¨íŠ¸ ë””ë ‰í† ë¦¬ 
 	{
 		printf("Cannot read root directory of volume %c\n", volname);
 		return -1;
@@ -475,11 +335,11 @@ int mft_live()
 		printf("Cannot parse attributes\n");
 		return -1;
 	}
-	//---------------------------------------------- MFT ·çÆ® µğ·ºÅä¸® ÆÄ½Ì
+	//---------------------------------------------- MFT ë£¨íŠ¸ ë””ë ‰í† ë¦¬ íŒŒì‹±
 
 	CIndexEntry ie;
 	
-	// ÆÄÀÏÀÇ MACÅ¸ÀÓ Á¤º¸ ÀúÀå.
+	// íŒŒì¼ì˜ MACíƒ€ì„ ì •ë³´ ì €ì¥.
 	FILETIME SI_writeTm;
 	FILETIME SI_createTm;
 	FILETIME SI_accessTm;
@@ -490,36 +350,39 @@ int mft_live()
 	FILETIME FN_accessTm;
 	FILETIME FN_mftTm;
 
-	_TCHAR fn[MAX_PATH];
-	
-	start = clock(); // ÇÁ·Î±×·¥ ½ÇÇà ½Ã°£ ÃøÁ¤ (ÀüÃ¼ MFT Entry µğÄÚµå ½Ã°£)
 
-	//for(int i=30 ;i<40 ; i++)
+	char fn[MAX_PATH];
+	
+	start = clock(); // í”„ë¡œê·¸ë¨ ì‹¤í–‰ ì‹œê°„ ì¸¡ì • (ì „ì²´ MFT Entry ë””ì½”ë“œ ì‹œê°„)
+
+	//for(int i=303 ;i<404 ; i++)
 	for(int i=0 ;i<entry_count ; i++)
 	{
 		fr.ParseFileRecord(i);
 
-		if (!fr.ParseAttrs())	// <--- ÇØ´ç ÆÄÀÏ ¿£Æ®¸® ÆÄ½Ì.
+		if (!fr.ParseAttrs())	// <--- í•´ë‹¹ íŒŒì¼ ì—”íŠ¸ë¦¬ íŒŒì‹±.
 		{
 			//printf("Entry NUM %d Cannot parse attributes\n", i);
 			continue;
 		}
 
-		int fnlen = fr.GetFileName(fn, MAX_PATH);
+		int fnlen = fr.GetFileName((_TCHAR *)fn, MAX_PATH);
 		if (fnlen > 0)
 		{
 			fr.GetFileTime(&SI_writeTm, &SI_createTm, &SI_accessTm, &SI_mftTm, &FN_writeTm, &FN_createTm, &FN_accessTm, &FN_mftTm);
 
-			SYSTEMTIME SI_writeTm_s;
-			SYSTEMTIME SI_createTm_s;
-			SYSTEMTIME SI_accessTm_s;
-			SYSTEMTIME SI_mftTm_s;
+	
+			unsigned __int64 SI_writeTm_s;
+			unsigned __int64 SI_createTm_s;
+			unsigned __int64 SI_accessTm_s;
+			unsigned __int64 SI_mftTm_s;
 
-			SYSTEMTIME FN_writeTm_s;
-			SYSTEMTIME FN_createTm_s;
-			SYSTEMTIME FN_accessTm_s;
-			SYSTEMTIME FN_mftTm_s;
-			
+			unsigned __int64 FN_writeTm_s;
+			unsigned __int64 FN_createTm_s;
+			unsigned __int64 FN_accessTm_s;
+			unsigned __int64 FN_mftTm_s;
+
+			/*
 			FileTimeToSystemTime(&SI_writeTm, &SI_writeTm_s); 
 			FileTimeToSystemTime(&SI_createTm, &SI_createTm_s);
 			FileTimeToSystemTime(&SI_accessTm, &SI_accessTm_s);
@@ -529,16 +392,26 @@ int mft_live()
 			FileTimeToSystemTime(&FN_createTm, &FN_createTm_s);
 			FileTimeToSystemTime(&FN_accessTm, &FN_accessTm_s);
 			FileTimeToSystemTime(&FN_mftTm, &FN_mftTm_s);
+			*/
 
+			SI_writeTm_s = filetime_to_microseconds(SI_writeTm);
+			SI_createTm_s = filetime_to_microseconds(SI_createTm);
+			SI_accessTm_s = filetime_to_microseconds(SI_accessTm);
+			SI_mftTm_s = filetime_to_microseconds(SI_mftTm);
+
+			FN_writeTm_s = filetime_to_microseconds(FN_writeTm);
+			FN_createTm_s = filetime_to_microseconds(FN_createTm);
+			FN_accessTm_s = filetime_to_microseconds(FN_accessTm);
+			FN_mftTm_s = filetime_to_microseconds(FN_mftTm);
 
 			if (fr.IsDirectory())
 				totaldirs ++;
 			else
 				totalfiles ++;
 
-			// ±¸Á¶Ã¼ ¹è¿­¿¡ °ª ÀúÀå.
-			strcpy(u3[i].FILENAME, (char *)fn);
-			
+			// êµ¬ì¡°ì²´ ë°°ì—´ì— ê°’ ì €ì¥.
+			strcpy(u3[i].FILENAME, fn);
+
 			u3[i].SI_writeTm = SI_writeTm_s;
 		    u3[i].SI_createTm = SI_createTm_s;
 			u3[i].SI_accessTm = SI_accessTm_s;
@@ -553,32 +426,22 @@ int mft_live()
 			u3[i].ParentRef = fr.GetParentRef();
 
 			
-
-
-			if (0) // È­¸é¿¡ Ãâ·Â ÇÏ³Ä ¾ÈÇÏ³Ä ¼³Á¤   0 = Ãâ·Â¾ÈÇÔ / 1 = Ãâ·ÂÇÔ
+		
+			if (0) // í™”ë©´ì— ì¶œë ¥ í•˜ëƒ ì•ˆí•˜ëƒ ì„¤ì •   0 = ì¶œë ¥ì•ˆí•¨ / 1 = ì¶œë ¥í•¨
 			{
 				printf("************************************************************\n\n");
 				printf("Current MFT Entry NUM : %u\n", i);
 				printf("MFT Parent Reference : %u\n", fr.GetParentRef());
 
-				printf("SI_WRITE TIME : %d-%02d-%02d  %02d:%02d\t\n", SI_writeTm_s.wYear, SI_writeTm_s.wMonth, SI_writeTm_s.wDay,
-									SI_writeTm_s.wHour, SI_writeTm_s.wMinute);
-				printf("SI_CREATE TIME : %d-%02d-%02d  %02d:%02d\t\n", SI_createTm_s.wYear, SI_createTm_s.wMonth, SI_createTm_s.wDay,
-									SI_createTm_s.wHour, SI_createTm_s.wMinute);
-				printf("SI_ACCESS TIME : %d-%02d-%02d  %02d:%02d\t\n", SI_accessTm_s.wYear, SI_accessTm_s.wMonth, SI_accessTm_s.wDay,
-									SI_accessTm_s.wHour, SI_accessTm_s.wMinute);
-				printf("SI_MFT TIME : %d-%02d-%02d  %02d:%02d\t\n", SI_mftTm_s.wYear, SI_mftTm_s.wMonth, SI_mftTm_s.wDay,
-									SI_mftTm_s.wHour, SI_mftTm_s.wMinute);
+				printf("SI_WRITE TIME : %d\n", SI_writeTm_s);
+				printf("SI_CREATE TIME : %d\n", SI_createTm_s);
+				printf("SI_ACCESS TIME : %d\n", SI_accessTm_s);
+				printf("SI_MFT TIME : %d\n", SI_mftTm_s);
 
-				printf("FN_WRITE TIME : %d-%02d-%02d  %02d:%02d\t\n", FN_writeTm_s.wYear, FN_writeTm_s.wMonth, FN_writeTm_s.wDay,
-									FN_writeTm_s.wHour, FN_writeTm_s.wMinute);
-				printf("FN_CREATE TIME : %d-%02d-%02d  %02d:%02d\t\n", FN_createTm_s.wYear, FN_createTm_s.wMonth, FN_createTm_s.wDay,
-									FN_createTm_s.wHour, FN_createTm_s.wMinute);
-				printf("FN_ACCESS TIME : %d-%02d-%02d  %02d:%02d\t\n", FN_accessTm_s.wYear, FN_accessTm_s.wMonth, FN_accessTm_s.wDay,
-									FN_accessTm_s.wHour, FN_accessTm_s.wMinute);
-				printf("FN_MFT TIME : %d-%02d-%02d  %02d:%02d\t\n", FN_mftTm_s.wYear, FN_mftTm_s.wMonth, FN_mftTm_s.wDay,
-									FN_mftTm_s.wHour, FN_mftTm_s.wMinute);
-
+				printf("FN_WRITE TIME : %d\n", FN_writeTm_s);
+				printf("FN_CREATE TIME : %d\n", FN_createTm_s);
+				printf("FN_ACCESS TIME : %d\n", FN_accessTm_s);
+				printf("FN_MFT TIME : %d\n", FN_mftTm_s);
 
 				printf("File TYPE : \t%s", fr.IsDirectory()?"<DIR>\n":"<FILE>\n");
 
@@ -596,29 +459,25 @@ int mft_live()
 		
 	}
 
-	end = clock();
-	printf("\n##### ÀüÃ¼ ¼Ò¿ä½Ã°£ : %5.2fÃÊ #####\n", (float)(end-start)/CLOCKS_PER_SEC);
+	// êµ¬ì¡°ì²´ì— ì €ì¥ëœ ì •ë³´ ì¶œë ¥ í•¨ìˆ˜.
+	//printStruct(u3);
 
-	/*
-	for(int i=0 ;i<entry_count ; i++)
+	// ê° entryì˜ ì „ì²´ê²½ë¡œë¥¼ êµ¬í•œë‹¤.
+	//for(int k=303 ;k<404 ; k++)
+	for (int k = 0 ; k < entry_count ; k++)
 	{
-		printf(" [i] entry values\n ");
-		printf(" FILENAME = %s\n", u3[i].FILENAME);
-		printf(" W_TIME = %u\n", u3[i].W_TIME);
-		printf(" A_TIME = %u\n", u3[i].A_TIME);
-		printf(" C_TIME = %u\n", u3[i].C_TIME);
-		printf(" Entry Num = %u\n", u3[i].entry);
-		printf(" ParentReg Num = %u\n\n", u3[i].ParentRef);
+		getFullPath(k, u3, k);
+		
+		//printf( "entry %d = %s\n\n", k, u3[k].FULLPATH ); 
 	}
-	*/
 
-	// list it !
-	// fr.TraverseSubEntries(printfile);  // CallBack ÇÔ¼ö µî·Ï !!!!!
+
+	end = clock();
+	printf("\n##### ì „ì²´ ì†Œìš”ì‹œê°„ : %5.2fì´ˆ #####\n", (float)(end-start)/CLOCKS_PER_SEC);
+
 	printf("Files: %d, Directories: %d\n", totalfiles, totaldirs);
-	
 	MFTtest(u3);
 
 	free(u3);
-
 	return 0;
 }
