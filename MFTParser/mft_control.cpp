@@ -18,8 +18,7 @@ int main(int argc, char **argv1)
 
 	case 2:
 
-
-    // stdout을 파일로 저장.
+    // MFT2db (image 
 		if (freopen("image.mft", "w", stdout) == NULL)
 			fprintf(stderr, "error redirecting stdout\n");
 		mft_image(argc, argv1);
@@ -27,10 +26,9 @@ int main(int argc, char **argv1)
 	    
 		//restore stdout
 		freopen("CON", "w", stdout);
-		//printf("@@@@ 출력테스트 @@@@\n");
-	// end
-
 		mft_image2db();
+				//printf("@@@@ 출력테스트 @@@@\n");
+	// end
 		break;
 	}
 }
