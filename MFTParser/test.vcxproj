@@ -85,6 +85,7 @@
   <ItemGroup>
     <ClCompile Include="mft_control.cpp" />
     <ClCompile Include="mft_image.cpp" />
+    <ClCompile Include="mft_image2db.cpp" />
     <ClCompile Include="mft_live.cpp" />
   </ItemGroup>
   <ItemGroup>

@@ -213,5 +213,4 @@ int mft_image(int argc, char **argv1)
         exit(1);
     }
     
-    exit(0);
 }
