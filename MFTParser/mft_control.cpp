@@ -35,11 +35,6 @@ int main(int argc, char **argv1)
 	case 2: // 디스크
 
     // MFT image to db 
-		char* ctmp2;
-		int len2; 
-		len2 = WideCharToMultiByte(CP_ACP, 0, ImagePath, -1, NULL, 0, NULL,NULL);
-		ctmp2 = new char[len2];
-		WideCharToMultiByte(CP_ACP, 0, ImagePath, -1, ctmp2, len2, NULL, NULL);
 
 		// 경로에 case를 -n옵션으로 받은 case명으로 변경하는 코드 추가 필요.
 		if (freopen("./case/image.mft", "w", stdout) == NULL)
