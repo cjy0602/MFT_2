@@ -37,7 +37,7 @@ int MFTtest(struct MFT  *u3, int countresult)
     }
 
     //MFT 테이블 생성
-    sql = "CREATE TABLE IF NOT EXISTS MFT (FULLPATH TEXT ,ATIME INT,MTIME INT, CTIME INT, CRTIME INT);";
+    sql = "CREATE TABLE IF NOT EXISTS MFT (FULLPATH TEXT ,AccessTm INT, ModifiedTm INT, ChangeTm INT, CreatedTm INT);";
     if( sqlite3_exec(db, sql, NULL, NULL, NULL) == SQLITE_OK) {
         fprintf(stderr, ">> SQLite Table creation Succeeded!\n");
     } else {
@@ -49,7 +49,7 @@ int MFTtest(struct MFT  *u3, int countresult)
     char* errorMsg = NULL;
     rc = sqlite3_exec(db, "BEGIN TRANSACTION;", NULL, NULL, &errorMsg);
     fprintf(stderr, " Commit begin result : %s\n", errorMsg);
-	sprintf (buffer,"INSERT INTO MFT(FULLPATH, ATIME, MTIME, CTIME, CRTIME) VALUES ( ?1, ?2, ?3, ?4, ?5)");
+	sprintf (buffer,"INSERT INTO MFT(FULLPATH, AccessTm, ModifiedTm, ChangeTm, CreatedTm) VALUES ( ?1, ?2, ?3, ?4, ?5)");
 
     if(sqlite3_prepare_v2(db, buffer, strlen(buffer), &stmt, NULL) == SQLITE_OK)
     {
