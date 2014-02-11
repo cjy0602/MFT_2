@@ -9,17 +9,10 @@
 
 static TSK_TCHAR *progname;
 
-static void
-usage()
-{
-    TFPRINTF(stderr,
-        _TSK_T
-        ("%s is invalid Disk Image!! \n"),
-        progname);
-    exit(1);
-}
-
-
+/*
+	작동 순서
+	OpenImage -> FindFilesInImg -> ProcessFile() ==> Callback ( FilterFs / FilterVol)
+*/
 class TskGetTimes:public TskAuto {
 public:
     TskGetTimes(int32_t);
@@ -34,7 +27,6 @@ private:
     int32_t m_secSkew;
 	bool m_compute_hash;
 };
-
 
 TskGetTimes::TskGetTimes(int32_t a_secSkew)
 {
@@ -79,6 +71,7 @@ TskGetTimes::filterFs(TSK_FS_INFO * fs_info)
 		fls_flags = (TSK_FS_FLS_FLAG_ENUM)(fls_flags | TSK_FS_FLS_HASH);
 	}
 
+	// 실제 파싱 수행 Auto 클래스 .
 	if (tsk_fs_fls(fs_info, (TSK_FS_FLS_FLAG_ENUM)(fls_flags),
 		fs_info->root_inum, (TSK_FS_DIR_WALK_FLAG_ENUM)(TSK_FS_DIR_WALK_FLAG_ALLOC | TSK_FS_DIR_WALK_FLAG_UNALLOC | TSK_FS_DIR_WALK_FLAG_RECURSE), volName, m_secSkew)) {
 	}
@@ -101,20 +94,27 @@ TskGetTimes::filterVol(const TSK_VS_PART_INFO * vs_part)
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-int mft_image(int argc, char **argv1)
+int mft_image(_TCHAR *image)
 {
+	int argc = 1;
+	//_TCHAR *argv1[2] = {0,};
+	//argv1[0] = L"test"; 
+	//argv1[1] = imaTge;
+	//printf("%s, %s\n\n", argv1[0], argv1[1]);
+
     TSK_IMG_TYPE_ENUM imgtype = TSK_IMG_TYPE_DETECT;
 	// Use autodetection methods.
-    int ch;
-    TSK_TCHAR **argv;
+	TSK_TCHAR *argv[1] = {0, };
     unsigned int ssize = 0;
-    TSK_TCHAR *cp;
+    //TSK_TCHAR *cp;
     int32_t sec_skew = 0;
 	bool do_hash = false;
 
 #ifdef TSK_WIN32
     // On Windows, get the wide arguments (mingw doesn't support wmain)
-    argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    //argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+	argv[0] = image;
+
     if (argv == NULL) {
         fprintf(stderr, "Error getting wide arguments\n");
         exit(1);
@@ -127,86 +127,26 @@ int mft_image(int argc, char **argv1)
     setlocale(LC_ALL, "");
 	// 경로명에 한글이 포함되면 안되는 문제를 해결함
 
-    while ((ch = GETOPT(argc, argv, _TSK_T("b:i:s:mvVz:"))) > 0) {
-        switch (ch) {
-        case _TSK_T('?'):
-        default:
-            TFPRINTF(stderr, _TSK_T("Invalid argument: %s\n"),
-                argv[OPTIND]);
-            usage();
-
-            
-        case _TSK_T('b'):
-            ssize = (unsigned int) TSTRTOUL(OPTARG, &cp, 0);
-            if (*cp || *cp == *OPTARG || ssize < 1) {
-                TFPRINTF(stderr,
-                    _TSK_T
-                    ("invalid argument: sector size must be positive: %s\n"),
-                    OPTARG);
-                usage();
-            }
-            break;
-                
-
-
-        case _TSK_T('i'):
-            if (TSTRCMP(OPTARG, _TSK_T("list")) == 0) {
-                tsk_img_type_print(stderr);
-                exit(1);
-            }
-            imgtype = tsk_img_type_toid(OPTARG);
-            if (imgtype == TSK_IMG_TYPE_UNSUPP) {
-                TFPRINTF(stderr, _TSK_T("Unsupported image type: %s\n"),
-                    OPTARG);
-                usage();
-            }
-            break;
-                
-        case _TSK_T('s'):
-            sec_skew = TATOI(OPTARG);
-            break;
-
-        case _TSK_T('m'):
-            do_hash = true;
-            break;
-
-        case _TSK_T('v'):
-            tsk_verbose++;
-            break;
-
-        case _TSK_T('V'):
-            tsk_version_print(stdout);
-            exit(0);
-                
-        case 'z':
-            {
-                TSK_TCHAR envstr[32];
-                TSNPRINTF(envstr, 32, _TSK_T("TZ=%s"), OPTARG);
-                if (0 != TPUTENV(envstr)) {
-                    tsk_fprintf(stderr, "error setting environment");
-                    exit(1);
-                }
-                
-                /* we should be checking this somehow */
-                TZSET();
-            }
-            break;
-                
-        }
-    }
-
-    /* We need at least one more argument */
-    if (OPTIND > argc) {
-        tsk_fprintf(stderr,
-            "Missing image name\n");
-        usage();
-    }
 
     TskGetTimes tskGetTimes(sec_skew, do_hash);
-    if (tskGetTimes.openImage(argc - OPTIND, &argv[OPTIND], imgtype, ssize)) {
+    if (tskGetTimes.openImage(argc, &argv[0], imgtype, ssize)) {
         tsk_error_print(stderr);
         exit(1);
     }
+	/*
+	http://www.sleuthkit.org/sleuthkit/docs/api-docs/classTskAuto.html#a6b8742f6c15472e822b2226c4cfb2187
+
+		uint8_t TskAuto::openImage	(	int 	a_numImg,
+										const TSK_TCHAR *const 	a_images[],
+										TSK_IMG_TYPE_ENUM 	a_imgType,
+										unsigned int 	a_sSize 
+		)	
+			a_numImg	The number of images to open (will be > 1 for split images).
+			a_images	The path to the image files (the number of files must be equal to num_img and they must be in a sorted order)
+			a_imgType	The disk image type (can be autodetection)
+			a_sSize	Size of device sector in bytes (or 0 for default)
+     */
+
     
     if (tskGetTimes.findFilesInImg()) {
         // we already logged the errors

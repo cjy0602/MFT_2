@@ -1,3 +1,5 @@
-int mft_image(int argc, char **argv1);
-int mft_live(void);
+#include <tchar.h>
+
+int mft_image(_TCHAR *image);
+int mft_live(char *path);
 int mft_image2db(void);

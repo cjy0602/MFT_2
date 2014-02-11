@@ -25,13 +25,14 @@ int MFTtest(struct MFT  *u3, int countresult)
     char *buffer = (char *)malloc(500);
     memset(buffer, 0x00, sizeof(char)*500);
 
-    int error = sqlite3_open("test8.db", &db);
+    int error = sqlite3_open("./case/info.db", &db);
     if(error)
     {
         fprintf(stderr, "DB접근이 어렵습니다. (오류 %s)\n", sqlite3_errmsg(db));
     }
     fprintf(stdout, "DB연결 완료.\n");
-    if(sqlite3_open("test8.db", &db) != SQLITE_OK)
+	// case를 -n인자로 받은 폴더 명 수정 필요.
+    if(sqlite3_open("./case/info.db", &db) != SQLITE_OK)
     {
         fprintf(stderr, "DB접근이 어렵습니다. (오류 %s)\n", sqlite3_errmsg(db));
     }
@@ -96,7 +97,8 @@ int mft_image2db()
 		exit(1);
 	}
 
-	f = fopen("image.mft","rt");
+	// case는 -n인자로 받은 폴더명, 수정필요.
+	f = fopen("./case/image.mft","rt");
 
 	if(f!=NULL){
 		for(i=0;f!=NULL;i++){

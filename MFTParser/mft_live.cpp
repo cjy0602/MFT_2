@@ -172,13 +172,13 @@ int MFTtest(struct mftstruct  *u3)
     memset(buffer, 0x00, sizeof(char)*500); //buffer부분의 메모리 초기화
 
    //여기서부터 테이블 생성 전까지는 db파일 생성부분
-    int error = sqlite3_open("test159.db", &db);
+    int error = sqlite3_open("./case/info.db", &db);
     if(error)
     {
         fprintf(stderr, "DB접근이 어렵습니다. (오류 %s)\n", sqlite3_errmsg(db));
     }
     fprintf(stdout, "DB연결 완료.\n");
-    if(sqlite3_open("test159.db", &db) != SQLITE_OK)
+    if(sqlite3_open("./case/info.db", &db) != SQLITE_OK)
     {
         fprintf(stderr, "DB접근이 어렵습니다. (오류 %s)\n", sqlite3_errmsg(db));
     }
@@ -259,11 +259,11 @@ int MFTtest(struct mftstruct  *u3)
     return 0;
  }
 
-int mft_live()
+int mft_live(char *path)
 {
    clock_t start, end; // 프로그램 실행 시간 측정 용
 
-   
+   /*
    printf("# The Physical Drives of this Machine : \n");
    //getPhysicalDrive();
    system("wmic diskdrive get Caption, Name");
@@ -279,8 +279,9 @@ int mft_live()
    printf("\n# Enter the drive Name : ");
    scanf("%200s", Name);
    char *path = Name;
-
+   */
    char volname;
+  
    volname = getvolume(&path); // Double Pointer !
 
    if (!volname)
@@ -288,7 +289,8 @@ int mft_live()
       usage();
       return -1;
    }
-
+   
+   
    CNTFSVolume volume(volname);
    if (!volume.IsVolumeOK())
    {
