@@ -89,7 +89,8 @@ int mft_image2db()
 	int i,j, count;
 	test *u3;
 
-	u3 = (test *)malloc(sizeof(test) * 1000000);
+	//u3 = (test *)malloc(sizeof(test) * 1000000);
+	u3 = (test *)calloc(1000000, sizeof(test));
 
 	if(u3==NULL){
 		puts("Malloc Failed...");
