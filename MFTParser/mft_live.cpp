@@ -481,7 +481,8 @@ int mft_live()
    for (int k = 0 ; k < entry_count ; k++)
    {
       getFullPath(k, u3, k);
-      
+	  strcat(u3[k].FULLPATH, "\/");
+	  strcat(u3[k].FULLPATH, u3[k].FILENAME);
       //printf( "entry %d = %s\n\n", k, u3[k].FULLPATH ); 
    }
 
