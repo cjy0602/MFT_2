@@ -9,7 +9,8 @@ char *token;
 
 struct MFT {
 	char PATH[260];
-	int atime, mtime, ctime, crtime;
+	unsigned int FN_atime, FN_mtime, FN_ctime, FN_crtime;
+	unsigned int SI_atime, SI_mtime, SI_ctime, SI_crtime;
 };
 typedef struct MFT test;
 
@@ -38,7 +39,7 @@ int MFTtest(struct MFT  *u3, int countresult)
     }
 
     //MFT 테이블 생성
-    sql = "CREATE TABLE IF NOT EXISTS MFT (FULLPATH TEXT ,AccessTm INT, ModifiedTm INT, ChangeTm INT, CreatedTm INT);";
+    sql = "CREATE TABLE IF NOT EXISTS MFT (FULLPATH TEXT , FN_AccessTm INT, FN_ModifiedTm INT, FN_ChangeTm INT, FN_CreatedTm INT, SI_AccessTm INT, SI_ModifiedTm INT, SI_ChangeTm INT, SI_CreatedTm INT);";
     if( sqlite3_exec(db, sql, NULL, NULL, NULL) == SQLITE_OK) {
         fprintf(stderr, ">> SQLite Table creation Succeeded!\n");
     } else {
@@ -50,7 +51,7 @@ int MFTtest(struct MFT  *u3, int countresult)
     char* errorMsg = NULL;
     rc = sqlite3_exec(db, "BEGIN TRANSACTION;", NULL, NULL, &errorMsg);
     fprintf(stderr, " Commit begin result : %s\n", errorMsg);
-	sprintf (buffer,"INSERT INTO MFT(FULLPATH, AccessTm, ModifiedTm, ChangeTm, CreatedTm) VALUES ( ?1, ?2, ?3, ?4, ?5)");
+	sprintf (buffer,"INSERT INTO MFT(FULLPATH  , FN_AccessTm, FN_ModifiedTm, FN_ChangeTm, FN_CreatedTm, SI_AccessTm, SI_ModifiedTm, SI_ChangeTm, SI_CreatedTm) VALUES ( ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)");
 
     if(sqlite3_prepare_v2(db, buffer, strlen(buffer), &stmt, NULL) == SQLITE_OK)
     {
@@ -62,11 +63,15 @@ int MFTtest(struct MFT  *u3, int countresult)
     }
 
     for( i=0; i<countresult; i++){
-		 sqlite3_bind_text(stmt, 1, u3[i].PATH, strlen(u3[i].PATH), SQLITE_STATIC);
-		sqlite3_bind_int(stmt, 2, (int)(u3[i].atime));
-        sqlite3_bind_int(stmt, 3, (int)(u3[i].mtime));
-        sqlite3_bind_int(stmt, 4, (int)(u3[i].ctime));
-		sqlite3_bind_int(stmt, 5, (int)(u3[i].crtime));
+		sqlite3_bind_text(stmt, 1, u3[i].PATH, strlen(u3[i].PATH), SQLITE_STATIC);
+		sqlite3_bind_int(stmt, 2, (int)(u3[i].FN_atime));
+        sqlite3_bind_int(stmt, 3, (int)(u3[i].FN_mtime));
+        sqlite3_bind_int(stmt, 4, (int)(u3[i].FN_ctime));
+		sqlite3_bind_int(stmt, 5, (int)(u3[i].FN_crtime));
+		sqlite3_bind_int(stmt, 6, (int)(u3[i].SI_atime));
+        sqlite3_bind_int(stmt, 7, (int)(u3[i].SI_mtime));
+        sqlite3_bind_int(stmt, 8, (int)(u3[i].SI_ctime));
+		sqlite3_bind_int(stmt, 9, (int)(u3[i].SI_crtime));
 
         if ( sqlite3_step(stmt) != SQLITE_DONE )  {
             fprintf(stderr, ">> SQLite Insert failed! \n");
@@ -100,33 +105,70 @@ int mft_image2db()
 	// case는 -n인자로 받은 폴더명, 수정필요.
 	f = fopen("./case/image.mft","rt");
 
+
+	int oddNum = 1;
+
 	if(f!=NULL){
+
 		for(i=0;f!=NULL;i++){
+
+			FindDeleted_enty:   
+
 			if(fgets(buf,256,f)==NULL){
 				break;
 			}
 			token = strtok( buf, seps );
+
 			for(j=0; token != NULL;j++)
 			{
 				if(j==1){
-					strcpy(u3[i].PATH,token);
+					// strcpy(u3[i].PATH,token);
+
 				}else if(j==7){
-					u3[i].atime = atoi(token);
+					if( atoi(token) == 0 )
+						goto FindDeleted_enty;
+
+					u3[i].FN_atime = atoi(token);
 				}else if(j==8){
-					u3[i].mtime = atoi(token);
+					u3[i].FN_mtime = atoi(token);
 				}else if(j==9){
-					u3[i].ctime = atoi(token);
+					u3[i].FN_ctime = atoi(token);
 				}else if(j==10){
-					u3[i].crtime = atoi(token);
+					u3[i].FN_crtime = atoi(token);
 				}
 				token = strtok( NULL, seps );
 			}
+
+			if(fgets(buf,256,f)==NULL){
+				break;
+			}
+			token = strtok( buf, seps );
+
+			for(j=0; token != NULL;j++)
+			{
+				if(j==1){
+					 strcpy(u3[i].PATH,token);
+				}else if(j==7){
+					u3[i].SI_atime = atoi(token);
+				}else if(j==8){
+					u3[i].SI_mtime = atoi(token);
+				}else if(j==9){
+					u3[i].SI_ctime = atoi(token);
+				}else if(j==10){
+					u3[i].SI_crtime = atoi(token);
+				}
+				token = strtok( NULL, seps );
+			}
+
 			if(f!=NULL){
 				count = i;
 			}
+
 		}
 		fclose(f);
 	}
+
+
 	MFTtest(u3,count);
 	free(u3);
 

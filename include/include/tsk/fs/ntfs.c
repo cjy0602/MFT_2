@@ -84,16 +84,17 @@
  * i.e. TIME - DELTA
  *
  */
-uint32_t
-nt2unixtime(uint64_t ntdate)
+//uint32_t
+uint64_t nt2unixtime(uint64_t ntdate)
 {
+
 // (369*365 + 89) * 24 * 3600 * 10000000
 #define	NSEC_BTWN_1601_1970	(uint64_t)(116444736000000000ULL)
 
     ntdate -= (uint64_t) NSEC_BTWN_1601_1970;
     ntdate /= (uint64_t) 10000000;
 
-    return (uint32_t) ntdate;
+    return (uint64_t) ntdate;
 }
 
 /* convert the NT Time (UTC hundred nanoseconds from 1/1/1601)
