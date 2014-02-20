@@ -106,13 +106,14 @@ int mft_image2db()
 	f = fopen("./case/image.mft","rt");
 
 
-	int oddNum = 1;
+	int FindDeletedFile = 0;
 
 	if(f!=NULL){
 
 		for(i=0;f!=NULL;i++){
 
 			FindDeleted_enty:   
+			FindDeletedFile = 0;
 
 			if(fgets(buf,256,f)==NULL){
 				break;
@@ -126,7 +127,7 @@ int mft_image2db()
 
 				}else if(j==7){
 					if( atoi(token) == 0 )
-						goto FindDeleted_enty;
+						FindDeletedFile = 1;
 
 					u3[i].FN_atime = atoi(token);
 				}else if(j==8){
@@ -138,6 +139,9 @@ int mft_image2db()
 				}
 				token = strtok( NULL, seps );
 			}
+
+			if(FindDeletedFile == 1)
+				goto FindDeleted_enty;
 
 			if(fgets(buf,256,f)==NULL){
 				break;
